@@ -44,7 +44,7 @@ class ProxyHandler(web.RequestHandler):
         response = yield self.proxy.get_page(req)
 
         self.set_status(response.code, response.reason)  # set right status
-        self._headers = tornado.httputil.HTTPHeaders()   # clear tornado default header
+        self._headers = tornado.httputil.HTTPHeaders()  # clear tornado default header
         # set headers
         for header, value in response.headers.get_all():
             if header not in ('Content-Length', 'Transfer-Encoding', 'Content-Encoding', 'Connection'):

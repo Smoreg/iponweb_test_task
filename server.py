@@ -1,11 +1,13 @@
 from __future__ import absolute_import
 
-import os
 import threading
+import time
+from sys import argv
 
 from tornado import web, httpserver, ioloop
 from urllib.parse import urlparse
 from handlers import ProxyHandler
+
 import tools
 
 
@@ -36,7 +38,6 @@ class Proxy(threading.Thread):
             ]
             settings = dict(
                 autoreload=True,
-                debug=True,
             )
             web.Application.__init__(self, handlers, **settings)
 
@@ -54,7 +55,7 @@ class Proxy(threading.Thread):
         if parsed_uri.scheme != "http":
             raise self.ProxyException('Bad scheme')
 
-        self.proxy_port = port
+        self.proxy_port = int(port)
 
     def run(self):
         application = self.TornadoProxyServer()
@@ -73,5 +74,21 @@ class Proxy(threading.Thread):
 
 
 if __name__ == "__main__":
-    a = Proxy('http://bash.im')
-    a.start()
+
+    # args = argv[2:]
+    args = ("http://bash.im",)
+
+    proxy = Proxy(*args)
+    proxy.start()
+    while True:
+        print("Print 'stop' to stop server")
+        command = input()
+        if command == 'stop':
+            break
+        else:
+            print('Unknown command')
+    proxy.stop()
+    while proxy.is_alive():
+        time.sleep(0.5)
+        print("Proxy stopping... ")
+    print("Proxy stop. Goodbye")

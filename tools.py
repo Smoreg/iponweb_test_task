@@ -1,45 +1,85 @@
-__author__ = 'antigrav'
 import time
 from threading import Lock
 from tornado import httpclient, gen
 
 
-class CacheControl():
+class ProxyLogic:
+    """
+    ProxyLogic have main proxy and cache logic
 
-    TIMEOUT = 60
+    Usage:
+    ProxyLogic().get_page(request), where request - HTTPRequest
 
+    """
+    TIMEOUT = 60  # cache timeout
+
+    def __init__(self):
+        self.cache_storage = CacheStorage()
+
+    @gen.coroutine
+    def get_page(self, request):
+        """
+        Download page and update cache if needed
+        :param request: HTTPRequest
+        :return: HTTPResponse
+        """
+
+        page = self.cache_storage.get_page(request.url)  # get page by url
+        # if page new or too old, page updated in cache_storage, then return to user
+        if not page or (time.time() - page.timestamp >= self.TIMEOUT):
+            new_page = yield self._update_page(request, page, need_answer=True)
+            raise gen.Return(new_page)
+        # if cache_storage have actual cache for that page
+        else:
+            self._update_page(request, page, need_answer=False)  # Future object. Page will be updated async
+            raise gen.Return(page.page_body)
+
+    @gen.coroutine
+    def _update_page(self, request, page, need_answer):
+        new_flag = not bool(page)
+        try:
+            # update new or not updated now page
+            if new_flag or page.lock.acqiere(False):
+                client = httpclient.AsyncHTTPClient()
+                response = yield client.fetch(request, raise_error=False)
+                if response.code in range(200, 300):
+                    self.cache_storage.set_page(response, request)
+                raise gen.Return(response)
+            # wait for updating end, if answer needed
+            elif need_answer:
+                page.lock.acqiere(True)
+                raise gen.Return(self.cache_storage.get_page(request.url))
+        finally:
+            if page.lock.locked():
+                page.lock.release()
+
+
+class CacheStorage:
+    """
+    Simple in memory cache storage. Can be replaced by some database
+    """
     class Page(object):
-        def __init__(self, page_body=None, request=None,):
+        """
+        Object stored by CacheStorage
+        """
+        def __init__(self, page_body):
             self.timestamp = time.time()
             self.lock = Lock()
-            self.path = request.url
             self.page_body = page_body
 
     def __init__(self):
         self.pages_storage = dict()
 
-    @gen.coroutine
-    def get_page(self, request):
-        page = self.pages_storage.get(request.url, None)
-        if not page or (time.time() - page.timestamp >= 60):
-            new_page = yield self._update_page(request, page, new_flag=not bool(page))
-            raise gen.Return(new_page)
-        else:
-            raise gen.Return(page.page_body)
+    def get_page(self, url):
+        """
+        :param url: page url
+        :return: Page instance
+        """
+        return self.pages_storage.get(url, None)
 
-    @gen.coroutine
-    def _update_page(self, request, page, new_flag):
-        lock_owner = False
-        try:
-            if not new_flag:
-                lock_owner = True
-                page.lock.acqiere()
-            client = httpclient.AsyncHTTPClient()
-            response = yield client.fetch(request)
-            self.pages_storage[request.url] = self.Page(response, request)
-            raise gen.Return(response)
-        except httpclient.HTTPError as err:
-            raise gen.Return(err.message)
-        finally:
-            if not new_flag and lock_owner:
-                page.lock.release()
+    def set_page(self, response, request):
+        """
+        :param response: server response, page body
+        :param request: request to server
+        """
+        self.pages_storage[request.url] = self.Page(response)

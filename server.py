@@ -9,11 +9,10 @@ from handlers import ProxyHandler
 import tools
 
 
-
 class Proxy(threading.Thread):
     """
 
-    Simple HTTP proxy.
+    Simple HTTP async proxy.
 
     After start that thread proxy, user can ask for target URI as 'localhost' via proxy
     Warning! If page on some 'example.com' have some hardcoded lines like 'src=example.com/1.jpg'
@@ -29,9 +28,7 @@ class Proxy(threading.Thread):
 
     ioloop = None
 
-
     class TornadoProxyServer(web.Application):
-
         def __init__(self):
             handlers = [
                 # main handler
@@ -49,19 +46,20 @@ class Proxy(threading.Thread):
         :param port: proxy working port. Default 8809
         """
 
-        self.uri = uri
-        parsed = urlparse(uri)
-        if parsed.scheme != "http":
+        super().__init__()
+
+        self.uri = uri.strip('/')
+
+        parsed_uri = urlparse(uri)
+        if parsed_uri.scheme != "http":
             raise self.ProxyException('Bad scheme')
-        super(Proxy, self).__init__()
+
         self.proxy_port = port
 
-
     def run(self):
-
         application = self.TornadoProxyServer()
-        application.uri_data = self.uri_data
-        application.cache = tools.CacheControl()
+        application.uri = self.uri
+        application.proxy = tools.ProxyLogic()
         http_server = httpserver.HTTPServer(application)
         http_server.listen(self.proxy_port)
         self.ioloop = ioloop.IOLoop.instance()
